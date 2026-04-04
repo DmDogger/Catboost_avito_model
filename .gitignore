@@ -45,3 +45,6 @@ mlruns/
 # Large / local data (раскомментируй, если не хочешь коммитить датасеты)
 # datasets/*.csv
 # data/
+
+# Trained CatBoost / large checkpoints (keep folder, ignore binaries if needed)
+# models/*.cbm

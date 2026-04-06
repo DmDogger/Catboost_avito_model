@@ -1,3 +1,6 @@
+from typing import Any
+
+
 def has_bull_markers(desc: str) -> bool:
     markers_list = ["•", "-", "/"]
     return any([marker in desc for marker in markers_list])
@@ -38,3 +41,8 @@ def count_the_occurrence_of_words_for_separation(desc: str) -> int:
 def turkney_count(desc: str) -> int:
     trigger_words = ["комплекс", "не выезжаю", "под ключ"]
     return sum(desc.lower().count(phrase) for phrase in trigger_words)
+
+def l2_norm(x: list[Any]):
+    import math
+    math.sqrt(sum(x_i ** 2 for x_i in x))
+

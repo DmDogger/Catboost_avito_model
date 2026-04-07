@@ -73,3 +73,63 @@ Everything is computed against labels **`y`** vs **`model.predict(X)`** or probs
 - `datasets/` — CSVs (large files: optional ignore in `.gitignore`).
 - `notebooks/` — training notebook.
 - `utils/` — text feature helpers.
+
+---
+
+## Бекенд: только инференс (веса с ноутбука)
+
+**Обучение** делается в `notebooks/catboost_model.ipynb`. На бекенд вы выгружаете **артефакты** и повторяете **тот же расчёт фич**, что в ноутбуке, затем только `transform` + предсказание.
+
+### Что выложить с ноутбука
+
+| Артефакт | Назначение |
+|----------|------------|
+| CatBoost | `model.save_model("…cbm")` — классификатор по **PCA-признакам** |
+| `StandardScaler` | `joblib.dump(scaler, …)` — обучен на train, на бекенде только **`transform`** |
+| `PCA` | `joblib.dump(pca, …)` — то же |
+| Порядок колонок `X` | список имён после `drop(columns=[...])`, в том же порядке, что у `scaler.feature_names_in_` (или явный JSON) |
+
+Плюс на сервере нужен **тот же** энкодер: **`SentenceTransformer('cointegrated/rubert-tiny2')`** (или закешированные веса той же ревизии).
+
+### Вход API (одно объявление)
+
+- **`sourceMcId`**
+- **`sourceMcTitle`**
+- **`description`**
+
+Таргета и разметочных колонок в проде нет — они нужны только в ноутбуке при обучении.
+
+### Шаги расчёта фич (как в ноутбуке)
+
+**1. Ручные признаки** — логика в `utils/description_features_utils.py`:
+
+| Колонка | Правило |
+|---------|---------|
+| `desc_words_count` | `len(description.split())` |
+| `desc_length` | `len(description)` |
+| `has_bull_markers` | есть ли `•`, `-`, `/` |
+| `has_slashes` | есть ли `/` или `//` |
+| `slash_counted` | число `/` |
+| `paragraph_counted` | число `\n` |
+| `turnkey_count` | сумма вхождений (в `lower()`): *комплекс*, *не выезжаю*, *под ключ* |
+
+**2. Эмбеддинги объявления** — одна строка в BERT:  
+`f"{sourceMcTitle}[SEP]{description}"` → `encode` → вектор **312**, в фичах это **`embeds0` … `embeds311`**.
+
+**3. `embeds_l2`** — нормализовать переводы строк (`\r`, `\n`, при необходимости литералы `\\n`);  
+`re.split(r'(?<=[.!?])\s+|\n+', text)` → непустые части; если частей **меньше двух** → **0.0**; иначе `encode` каждой части и **`mean(pdist(..., metric='euclidean'))`**.
+
+**4. Сборка одной строки признаков**
+
+- Включить **`sourceMcId`**, все **7 ручных фич**, **`embeds_l2`**, **`embeds0…embeds311`**.
+- **Исключить** `sourceMcTitle`, `description`, `shouldSplit` — как в ноутбуке при формировании `X`.
+- Столбцы в **том же порядке**, что при `fit` у `StandardScaler`.
+
+### Предсказание
+
+1. Взять только **числовые** колонки (как `select_dtypes` в ноутбуке), **`fillna(0)`**.
+2. **`scaler.transform`**  
+3. **`pca.transform`**  
+4. **`model.predict_proba`** (или `predict`)
+
+Без 2–3 ответ будет неверным относительно обученной модели.
